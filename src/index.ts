@@ -3,6 +3,8 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { closeDatabase, connectToDatabase } from "./config/database.js";
+import { errorHandler } from "./middlewares/error-handler.js";
+import { fileRouter } from "./routes/file.routes.js";
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -15,6 +17,10 @@ app.use(cors());
 app.get("/", (_req, res) => {
   res.send("Hello, World!");
 });
+
+app.use("/api/files", fileRouter);
+
+app.use(errorHandler);
 
 async function start(): Promise<void> {
   await connectToDatabase();
