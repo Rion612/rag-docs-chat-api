@@ -5,6 +5,7 @@ import helmet from "helmet";
 import { closeDatabase, connectToDatabase } from "./config/database.js";
 import { errorHandler } from "./middlewares/error-handler.js";
 import { fileRouter } from "./routes/file.routes.js";
+import { ensureChunkIndexes } from "./services/chunk.service.js";
 import { getStorage } from "./storage/index.js";
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -29,6 +30,7 @@ async function start(): Promise<void> {
   console.log(`Using "${storage.name}" storage provider`);
 
   await connectToDatabase();
+  await ensureChunkIndexes();
 
   const server = app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);

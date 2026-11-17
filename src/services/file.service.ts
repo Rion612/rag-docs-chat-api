@@ -2,18 +2,30 @@ import { ObjectId } from "mongodb";
 import { getDb } from "../config/database.js";
 import { getStorage, type StoredObject } from "../storage/index.js";
 
+export type FileStatus = "processing" | "ready" | "failed";
+
 export interface FileDocument {
   _id: ObjectId;
   originalName: string;
   mimeType: string;
   size: number;
   storage: StoredObject;
+  status: FileStatus;
+  pageCount?: number;
+  chunkCount?: number;
+  /** Why processing failed, when status is "failed". */
+  error?: string;
+  processedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
 
-function filesCollection() {
+export function filesCollection() {
   return getDb().collection<FileDocument>("files");
+}
+
+export async function findFileById(id: ObjectId): Promise<FileDocument | null> {
+  return filesCollection().findOne({ _id: id });
 }
 
 export async function savePdf(
@@ -32,6 +44,7 @@ export async function savePdf(
     mimeType: file.mimetype,
     size: file.size,
     storage: stored,
+    status: "processing",
     createdAt: now,
     updatedAt: now,
   };
