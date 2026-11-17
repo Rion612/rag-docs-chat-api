@@ -22,7 +22,6 @@ fileRouter.post("/", uploadPdf, async (req, res) => {
   ) {
     throw new HttpError(400, "File content is not a valid PDF.");
   }
-  console.log;
 
   const saved = await savePdf(file);
 
@@ -31,7 +30,8 @@ fileRouter.post("/", uploadPdf, async (req, res) => {
     originalName: saved.originalName,
     mimeType: saved.mimeType,
     size: saved.size,
-    storagePath: saved.storagePath,
+    storageProvider: saved.storage.provider,
+    storagePath: saved.storage.key,
     createdAt: saved.createdAt,
   });
 });

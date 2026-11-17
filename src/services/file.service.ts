@@ -1,15 +1,13 @@
-import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { ObjectId } from "mongodb";
 import { getDb } from "../config/database.js";
-import { getS3, getS3Bucket } from "../config/s3.js";
+import { getStorage, type StoredObject } from "../storage/index.js";
 
 export interface FileDocument {
   _id: ObjectId;
   originalName: string;
   mimeType: string;
   size: number;
-  bucket: string;
-  storagePath: string;
+  storage: StoredObject;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,19 +20,10 @@ export async function savePdf(
   file: Express.Multer.File,
 ): Promise<FileDocument> {
   const id = new ObjectId();
-  const bucket = getS3Bucket();
-  const storagePath = `pdfs/${id.toHexString()}.pdf`;
-  const s3 = getS3();
+  const key = `pdfs/${id.toHexString()}.pdf`;
+  const storage = getStorage();
 
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: storagePath,
-      Body: file.buffer,
-      ContentType: "application/pdf",
-      ContentLength: file.size,
-    }),
-  );
+  const stored = await storage.upload(key, file.buffer, "application/pdf");
 
   const now = new Date();
   const doc: FileDocument = {
@@ -42,8 +31,7 @@ export async function savePdf(
     originalName: file.originalname,
     mimeType: file.mimetype,
     size: file.size,
-    bucket,
-    storagePath,
+    storage: stored,
     createdAt: now,
     updatedAt: now,
   };
@@ -51,10 +39,8 @@ export async function savePdf(
   try {
     await filesCollection().insertOne(doc);
   } catch (error) {
-    // Don't leave an orphaned object in storage if the metadata write fails.
-    await s3
-      .send(new DeleteObjectCommand({ Bucket: bucket, Key: storagePath }))
-      .catch(() => undefined);
+    // Don't leave an orphaned file in storage if the metadata write fails.
+    await storage.delete(key).catch(() => undefined);
     throw error;
   }
 

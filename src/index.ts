@@ -5,6 +5,7 @@ import helmet from "helmet";
 import { closeDatabase, connectToDatabase } from "./config/database.js";
 import { errorHandler } from "./middlewares/error-handler.js";
 import { fileRouter } from "./routes/file.routes.js";
+import { getStorage } from "./storage/index.js";
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -23,6 +24,10 @@ app.use("/api/files", fileRouter);
 app.use(errorHandler);
 
 async function start(): Promise<void> {
+  // Fail fast on a bad STORAGE_PROVIDER or missing provider config.
+  const storage = getStorage();
+  console.log(`Using "${storage.name}" storage provider`);
+
   await connectToDatabase();
 
   const server = app.listen(PORT, () => {
