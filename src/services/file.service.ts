@@ -5,8 +5,16 @@ import { processPdf } from "./file-processing.service.js";
 
 export type { FileDocument, FileStatus } from "../models/file.model.js";
 
-export async function findFileById(id: ObjectId): Promise<FileDocument | null> {
-  return filesCollection().findOne({ _id: id });
+/** Finds a file only if it belongs to the given session. */
+export async function findFileById(
+  id: ObjectId,
+  ownerId: string,
+): Promise<FileDocument | null> {
+  return filesCollection().findOne({ _id: id, ownerId });
+}
+
+export async function countFilesByOwner(ownerId: string): Promise<number> {
+  return filesCollection().countDocuments({ ownerId });
 }
 
 /**
@@ -17,6 +25,7 @@ export async function findFileById(id: ObjectId): Promise<FileDocument | null> {
  */
 export async function savePdf(
   file: Express.Multer.File,
+  ownerId: string,
 ): Promise<FileDocument> {
   const id = new ObjectId();
   const key = `pdfs/${id.toHexString()}.pdf`;
@@ -27,6 +36,7 @@ export async function savePdf(
   const now = new Date();
   const doc: FileDocument = {
     _id: id,
+    ownerId,
     originalName: file.originalname,
     mimeType: file.mimetype,
     size: file.size,

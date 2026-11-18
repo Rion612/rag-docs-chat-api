@@ -20,12 +20,12 @@ export async function processPdf(
   try {
     const file = await files.findOne(
       { _id: fileId },
-      { projection: { originalName: 1 } },
+      { projection: { originalName: 1, ownerId: 1 } },
     );
+    if (!file) throw new Error("File record not found.");
+
     // The file name (without .pdf) is the embedding title for every chunk.
-    const title = file
-      ? path.parse(file.originalName).name
-      : fileId.toHexString();
+    const title = path.parse(file.originalName).name;
 
     const pages = await extractPdfPages(buffer);
     const chunks = chunkPages(pages, getChunkOptions());
@@ -36,7 +36,7 @@ export async function processPdf(
       );
     }
 
-    await insertChunks(fileId, chunks);
+    await insertChunks(fileId, file.ownerId, chunks);
     await embedFileChunks(fileId, title);
 
     await files.updateOne(

@@ -5,22 +5,41 @@ import helmet from "helmet";
 import { closeDatabase, connectToDatabase } from "./config/database.js";
 import { validateEnv } from "./config/validate-env.js";
 import { errorHandler } from "./middlewares/error-handler.js";
+import { apiLimiter } from "./middlewares/rate-limit.js";
+import { requireSession } from "./middlewares/require-session.js";
 import { fileRouter } from "./routes/file.routes.js";
+import { sessionRouter } from "./routes/session.routes.js";
 import { getStorage } from "./storage/index.js";
 
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
 
+// Behind a reverse proxy or load balancer, set TRUST_PROXY to the number of
+// proxies so rate limits see the client's real IP, not the proxy's.
+app.set("trust proxy", Number(process.env.TRUST_PROXY || 0));
+
 app.use(helmet());
 
-app.use(cors());
+// Only the listed frontend origins may call the API from a browser.
+// Unset means any origin, which validateEnv allows only outside production.
+const corsOrigins = process.env.CORS_ORIGINS?.split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin: corsOrigins?.length ? corsOrigins : true,
+    allowedHeaders: ["Authorization", "Content-Type"],
+    exposedHeaders: ["RateLimit", "RateLimit-Policy", "Retry-After"],
+  }),
+);
 
 app.get("/", (_req, res) => {
   res.send("Hello, World!");
 });
 
-app.use("/api/files", fileRouter);
+app.use("/api/sessions", sessionRouter);
+app.use("/api/files", requireSession, apiLimiter, fileRouter);
 
 app.use(errorHandler);
 

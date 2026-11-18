@@ -6,6 +6,8 @@ export type FileStatus = "processing" | "ready" | "failed";
 
 export interface FileDocument {
   _id: ObjectId;
+  /** Anonymous session that uploaded the file; only it can access the file. */
+  ownerId: string;
   originalName: string;
   mimeType: string;
   size: number;

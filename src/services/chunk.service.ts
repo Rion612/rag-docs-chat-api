@@ -9,6 +9,8 @@ export const VECTOR_INDEX_NAME = "chunks_vector_index";
 export interface ChunkDocument {
   _id?: ObjectId;
   fileId: ObjectId;
+  /** Session that owns the file; vector searches are filtered by it. */
+  ownerId: string;
   /** 0-based position of the chunk within the file. */
   index: number;
   text: string;
@@ -28,60 +30,102 @@ export async function ensureChunkIndexes(): Promise<void> {
     { fileId: 1, index: 1 },
     { unique: true },
   );
+  // Listing and counting a session's files.
+  await getDb().collection("files").createIndex({ ownerId: 1, createdAt: -1 });
+}
+
+interface SearchIndexField {
+  type: string;
+  path: string;
+  numDimensions?: number;
+}
+
+/** Waits until a dropped search index is fully gone (dropping is asynchronous). */
+async function waitForSearchIndexRemoval(name: string): Promise<void> {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const remaining = await chunksCollection()
+      .listSearchIndexes(name)
+      .toArray();
+    if (remaining.length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error(`Search index "${name}" was not removed within 60s.`);
 }
 
 /**
- * Creates the Atlas Vector Search index on chunk embeddings if it is missing.
- * The index builds in the background, so searches may return nothing for a
- * short while after it is first created.
+ * Creates the Atlas Vector Search index on chunk embeddings, or rebuilds it
+ * when its filter fields are out of date. The index builds in the
+ * background, so searches may return nothing for a short while afterwards.
  */
 export async function ensureVectorSearchIndex(): Promise<void> {
   const collection = chunksCollection();
   const dimensions = geminiConfig.embeddingDimensions;
+  const definition = {
+    fields: [
+      {
+        type: "vector",
+        path: "embedding",
+        numDimensions: dimensions,
+        similarity: "cosine",
+      },
+      // Searches are always limited to the caller's session, optionally to some files.
+      { type: "filter", path: "ownerId" },
+      { type: "filter", path: "fileId" },
+    ],
+  };
 
-  const existing = await collection
-    .listSearchIndexes(VECTOR_INDEX_NAME)
-    .toArray();
-  const index = existing[0] as
-    | { latestDefinition?: { fields?: { numDimensions?: number }[] } }
-    | undefined;
-
-  if (!index) {
+  const create = async () => {
     await collection.createSearchIndex({
       name: VECTOR_INDEX_NAME,
       type: "vectorSearch",
-      definition: {
-        fields: [
-          {
-            type: "vector",
-            path: "embedding",
-            numDimensions: dimensions,
-            similarity: "cosine",
-          },
-          { type: "filter", path: "fileId" },
-        ],
-      },
+      definition,
     });
     console.log(
       `Created vector search index "${VECTOR_INDEX_NAME}" (${dimensions} dimensions)`,
     );
+  };
+
+  const [index] = (await collection
+    .listSearchIndexes(VECTOR_INDEX_NAME)
+    .toArray()) as { latestDefinition?: { fields?: SearchIndexField[] } }[];
+
+  if (!index) {
+    await create();
     return;
   }
 
-  const indexed = index.latestDefinition?.fields?.find(
-    (f) => f.numDimensions !== undefined,
-  )?.numDimensions;
+  const fields = index.latestDefinition?.fields ?? [];
+  const indexed = fields.find((f) => f.type === "vector")?.numDimensions;
   if (indexed !== undefined && indexed !== dimensions) {
     console.warn(
       `Vector search index "${VECTOR_INDEX_NAME}" uses ${indexed} dimensions but GEMINI_EMBEDDING_DIMENSIONS is ${dimensions}. ` +
-        "Searches will fail until the index is rebuilt and all chunks are re-embedded.",
+        "Not changing it: drop the index, re-embed all chunks, then run setup again.",
     );
+    return;
+  }
+
+  const missingFilters = definition.fields.filter(
+    (wanted) =>
+      wanted.type === "filter" &&
+      !fields.some((f) => f.type === "filter" && f.path === wanted.path),
+  );
+  if (missingFilters.length > 0) {
+    // updateSearchIndex can't be used: it doesn't tell the server the index is
+    // a vectorSearch index, so the server rejects the definition. Rebuild instead.
+    console.log(
+      `Vector search index "${VECTOR_INDEX_NAME}" is missing filters (${missingFilters.map((f) => f.path).join(", ")}); rebuilding it`,
+    );
+    await collection.dropSearchIndex(VECTOR_INDEX_NAME);
+    await waitForSearchIndexRemoval(VECTOR_INDEX_NAME);
+    await create();
   }
 }
 
 /** Saves the chunks of a newly uploaded file, in order. */
 export async function insertChunks(
   fileId: ObjectId,
+  ownerId: string,
   chunks: TextChunk[],
 ): Promise<void> {
   if (chunks.length === 0) return;
@@ -90,6 +134,7 @@ export async function insertChunks(
   await chunksCollection().insertMany(
     chunks.map((chunk, index) => ({
       fileId,
+      ownerId,
       index,
       text: chunk.text,
       pageStart: chunk.pageStart,

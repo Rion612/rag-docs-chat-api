@@ -21,6 +21,29 @@ const envSchema = z.object({
     })
     .optional(),
 
+  // Sessions and access
+  SESSION_SECRET: z
+    .string({
+      error:
+        "is required (generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\")",
+    })
+    .min(32, "must be at least 32 characters"),
+  SESSION_TTL_DAYS: optionalInt(1, 365),
+  CORS_ORIGINS: z
+    .string()
+    .refine(
+      (value) =>
+        value
+          .split(",")
+          .map((origin) => origin.trim())
+          .filter(Boolean)
+          .every((origin) => /^https?:\/\/[^/\s]+$/.test(origin)),
+      "must be comma-separated origins like https://app.example.com (no paths or trailing slashes)",
+    )
+    .optional(),
+  TRUST_PROXY: optionalInt(0, 10),
+  MAX_FILES_PER_SESSION: optionalInt(1, 10_000),
+
   // MongoDB
   MONGODB_URI: z
     .string()
@@ -65,6 +88,13 @@ const envSchema = z.object({
  */
 function crossFieldProblems(env: Env): [string, string][] {
   const problems: [string, string][] = [];
+
+  if (env.NODE_ENV === "production" && !env.CORS_ORIGINS) {
+    problems.push([
+      "CORS_ORIGINS",
+      "is required in production (your frontend's origin, e.g. https://app.example.com)",
+    ]);
+  }
 
   if (!env.MONGODB_URI && !!env.MONGO_USER !== !!env.MONGO_PASSWORD) {
     problems.push([
