@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "db:setup": "tsx src/scripts/setup-db.ts",
+    "db:setup:prod": "node dist/scripts/setup-db.js"
   },
   "repository": {
     "type": "git",

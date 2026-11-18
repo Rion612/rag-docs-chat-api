@@ -1,33 +1,20 @@
 import { ObjectId } from "mongodb";
-import { getDb } from "../config/database.js";
-import { getStorage, type StoredObject } from "../storage/index.js";
+import { filesCollection, type FileDocument } from "../models/file.model.js";
+import { getStorage } from "../storage/index.js";
+import { processPdf } from "./file-processing.service.js";
 
-export type FileStatus = "processing" | "ready" | "failed";
-
-export interface FileDocument {
-  _id: ObjectId;
-  originalName: string;
-  mimeType: string;
-  size: number;
-  storage: StoredObject;
-  status: FileStatus;
-  pageCount?: number;
-  chunkCount?: number;
-  /** Why processing failed, when status is "failed". */
-  error?: string;
-  processedAt?: Date;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export function filesCollection() {
-  return getDb().collection<FileDocument>("files");
-}
+export type { FileDocument, FileStatus } from "../models/file.model.js";
 
 export async function findFileById(id: ObjectId): Promise<FileDocument | null> {
   return filesCollection().findOne({ _id: id });
 }
 
+/**
+ * Stores an uploaded PDF and its metadata, then starts extracting, chunking,
+ * and embedding it in the background. Returns as soon as the file is stored,
+ * with status "processing"; the status becomes "ready" or "failed" when the
+ * background work finishes.
+ */
 export async function savePdf(
   file: Express.Multer.File,
 ): Promise<FileDocument> {
@@ -56,6 +43,9 @@ export async function savePdf(
     await storage.delete(key).catch(() => undefined);
     throw error;
   }
+
+  // Not awaited: processPdf never throws and records its outcome on the file.
+  void processPdf(doc._id, file.buffer);
 
   return doc;
 }

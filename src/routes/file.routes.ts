@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { uploadPdf } from "../middlewares/upload.js";
-import { processPdf } from "../services/file-processing.service.js";
 import {
   findFileById,
   savePdf,
@@ -48,9 +47,6 @@ fileRouter.post("/", uploadPdf, async (req, res) => {
   }
 
   const saved = await savePdf(file);
-
-  // Extract and chunk in the background; poll GET /api/files/:id for status.
-  void processPdf(saved._id, file.buffer);
 
   res.status(201).json(toFileResponse(saved));
 });

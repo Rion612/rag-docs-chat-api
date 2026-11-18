@@ -1,13 +1,15 @@
+import path from "node:path";
 import type { ObjectId } from "mongodb";
+import { geminiConfig } from "../config/gemini.js";
 import { chunkPages, getChunkOptions } from "../processing/chunker.js";
 import { extractPdfPages } from "../processing/pdf-extractor.js";
-import { replaceChunks } from "./chunk.service.js";
-import { filesCollection } from "./file.service.js";
+import { embedFileChunks, insertChunks } from "./chunk.service.js";
+import { filesCollection } from "../models/file.model.js";
 
 /**
- * Extracts text from an uploaded PDF, chunks it, and stores the chunks.
- * Runs in the background after upload: it never throws, and records the
- * outcome on the file document as status "ready" or "failed".
+ * Extracts text from an uploaded PDF, chunks it, embeds the chunks, and
+ * stores them. Runs in the background after upload: it never throws, and
+ * records the outcome on the file document as status "ready" or "failed".
  */
 export async function processPdf(
   fileId: ObjectId,
@@ -16,6 +18,15 @@ export async function processPdf(
   const files = filesCollection();
 
   try {
+    const file = await files.findOne(
+      { _id: fileId },
+      { projection: { originalName: 1 } },
+    );
+    // The file name (without .pdf) is the embedding title for every chunk.
+    const title = file
+      ? path.parse(file.originalName).name
+      : fileId.toHexString();
+
     const pages = await extractPdfPages(buffer);
     const chunks = chunkPages(pages, getChunkOptions());
 
@@ -25,7 +36,9 @@ export async function processPdf(
       );
     }
 
-    await replaceChunks(fileId, chunks);
+    await insertChunks(fileId, chunks);
+    await embedFileChunks(fileId, title);
+
     await files.updateOne(
       { _id: fileId },
       {
@@ -33,6 +46,8 @@ export async function processPdf(
           status: "ready",
           pageCount: pages.length,
           chunkCount: chunks.length,
+          embeddingModel: geminiConfig.embeddingModel,
+          embeddingDimensions: geminiConfig.embeddingDimensions,
           processedAt: new Date(),
           updatedAt: new Date(),
         },
@@ -40,7 +55,7 @@ export async function processPdf(
       },
     );
     console.log(
-      `Processed file ${fileId.toHexString()}: ${pages.length} pages, ${chunks.length} chunks`,
+      `Processed file ${fileId.toHexString()}: ${pages.length} pages, ${chunks.length} chunks embedded`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
