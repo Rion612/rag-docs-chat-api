@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { closeDatabase, connectToDatabase } from "./config/database.js";
+import { validateEnv } from "./config/validate-env.js";
 import { errorHandler } from "./middlewares/error-handler.js";
 import { fileRouter } from "./routes/file.routes.js";
 import { getStorage } from "./storage/index.js";
@@ -24,6 +25,9 @@ app.use("/api/files", fileRouter);
 app.use(errorHandler);
 
 async function start(): Promise<void> {
+  // Exit with a clear list of problems if any setting is missing or invalid.
+  validateEnv();
+
   // Fail fast on a bad STORAGE_PROVIDER or missing provider config.
   const storage = getStorage();
   console.log(`Using "${storage.name}" storage provider`);

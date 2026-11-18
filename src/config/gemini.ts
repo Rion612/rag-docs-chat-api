@@ -24,14 +24,22 @@ function embeddingDimensions(): number {
   return value;
 }
 
+// Getters read the environment when used, not when this module is imported,
+// so startup validation (validateEnv) runs before any of these values are read.
 export const geminiConfig = {
   /** Model that writes answers from retrieved chunks. */
-  chatModel: process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash-lite",
+  get chatModel(): string {
+    return process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash-lite";
+  },
   /** Model that turns chunks and questions into vectors. */
-  embeddingModel: process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-2",
+  get embeddingModel(): string {
+    return process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-2";
+  },
   /**
    * Vector size. Must match numDimensions in the Atlas vector search index,
    * and changing it later means re-embedding every stored chunk.
    */
-  embeddingDimensions: embeddingDimensions(),
-} as const;
+  get embeddingDimensions(): number {
+    return embeddingDimensions();
+  },
+};
