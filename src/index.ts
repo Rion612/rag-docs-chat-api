@@ -7,6 +7,7 @@ import { validateEnv } from "./config/validate-env.js";
 import { errorHandler } from "./middlewares/error-handler.js";
 import { apiLimiter } from "./middlewares/rate-limit.js";
 import { requireSession } from "./middlewares/require-session.js";
+import { chatRouter } from "./routes/chat.routes.js";
 import { fileRouter } from "./routes/file.routes.js";
 import { sessionRouter } from "./routes/session.routes.js";
 import { getStorage } from "./storage/index.js";
@@ -38,8 +39,12 @@ app.get("/", (_req, res) => {
   res.send("Hello, World!");
 });
 
+// JSON bodies (chat questions are small; uploads use multipart, not JSON).
+app.use(express.json({ limit: "100kb" }));
+
 app.use("/api/sessions", sessionRouter);
 app.use("/api/files", requireSession, apiLimiter, fileRouter);
+app.use("/api/chat", requireSession, apiLimiter, chatRouter);
 
 app.use(errorHandler);
 

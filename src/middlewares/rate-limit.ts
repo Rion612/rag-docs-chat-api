@@ -36,6 +36,15 @@ export const apiLimiter = rateLimit({
   message: { error: "Too many requests. Try again later." },
 });
 
+/** Questions per session. Each one costs a Gemini embedding and a generation. */
+export const chatLimiter = rateLimit({
+  ...common,
+  windowMs: HOUR,
+  limit: 60,
+  keyGenerator: sessionOrIpKey,
+  message: { error: "Question limit reached. Try again later." },
+});
+
 /** Uploads per session. Each upload costs Gemini embedding quota. */
 export const uploadLimiter = rateLimit({
   ...common,

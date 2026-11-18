@@ -28,6 +28,17 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
 
+  // Errors from express.json(): malformed or oversized request bodies.
+  const bodyErrorType = (err as { type?: unknown }).type;
+  if (bodyErrorType === "entity.parse.failed") {
+    res.status(400).json({ error: "Request body is not valid JSON." });
+    return;
+  }
+  if (bodyErrorType === "entity.too.large") {
+    res.status(413).json({ error: "Request body is too large." });
+    return;
+  }
+
   console.error(err);
   res.status(500).json({ error: "Internal server error" });
 };
