@@ -1,7 +1,7 @@
 import { ObjectId } from "mongodb";
 import { filesCollection, type FileDocument } from "../models/file.model.js";
 import { getStorage } from "../storage/index.js";
-import { processPdf } from "./file-processing.service.js";
+import { notifyFileQueued } from "../workers/file-worker.js";
 
 export type { FileDocument, FileStatus } from "../models/file.model.js";
 
@@ -18,10 +18,10 @@ export async function countFilesByOwner(ownerId: string): Promise<number> {
 }
 
 /**
- * Stores an uploaded PDF and its metadata, then starts extracting, chunking,
- * and embedding it in the background. Returns as soon as the file is stored,
- * with status "processing"; the status becomes "ready" or "failed" when the
- * background work finishes.
+ * Stores an uploaded PDF and its metadata and queues it for processing.
+ * Returns as soon as the file is stored, with status "queued". The file
+ * worker then moves it through extracting, chunking and embedding to
+ * "ready" or "failed".
  */
 export async function savePdf(
   file: Express.Multer.File,
@@ -41,7 +41,7 @@ export async function savePdf(
     mimeType: file.mimetype,
     size: file.size,
     storage: stored,
-    status: "processing",
+    status: "queued",
     createdAt: now,
     updatedAt: now,
   };
@@ -54,8 +54,6 @@ export async function savePdf(
     throw error;
   }
 
-  // Not awaited: processPdf never throws and records its outcome on the file.
-  void processPdf(doc._id, file.buffer);
-
+  notifyFileQueued();
   return doc;
 }

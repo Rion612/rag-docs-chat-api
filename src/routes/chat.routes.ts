@@ -1,4 +1,4 @@
-import { Router, type Response } from "express";
+import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { chatLimiter } from "../middlewares/rate-limit.js";
@@ -6,9 +6,7 @@ import { sessionIdOf } from "../middlewares/require-session.js";
 import { answerQuestion, streamAnswer } from "../services/chat.service.js";
 import { isRetryableGeminiError } from "../utils/gemini-retry.js";
 import { HttpError } from "../utils/http-error.js";
-
-/** How often a comment is sent on a quiet stream so proxies keep it open. */
-const KEEP_ALIVE_MS = 15_000;
+import { openSse } from "../utils/sse.js";
 
 const chatRequestSchema = z.object({
   question: z
@@ -82,25 +80,13 @@ chatRouter.post("/stream", chatLimiter, async (req, res) => {
   }
   if (controller.signal.aborted) return;
 
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream; charset=utf-8",
-    "Cache-Control": "no-cache, no-transform",
-    Connection: "keep-alive",
-    "X-Accel-Buffering": "no", // stop nginx from buffering the stream
-  });
-  res.flushHeaders();
-
-  const keepAlive = setInterval(() => res.write(": ping\n\n"), KEEP_ALIVE_MS);
-
+  const sse = openSse(res);
   try {
     for await (const event of stream) {
       if (event.type === "token") {
-        sendEvent(res, "token", { text: event.text });
+        sse.send("token", { text: event.text });
       } else {
-        sendEvent(res, "done", {
-          citations: event.citations,
-          model: event.model,
-        });
+        sse.send("done", { citations: event.citations, model: event.model });
       }
     }
   } catch (error) {
@@ -108,18 +94,12 @@ chatRouter.post("/stream", chatLimiter, async (req, res) => {
       if (!(error instanceof HttpError) && !isRetryableGeminiError(error)) {
         console.error(error);
       }
-      sendEvent(res, "error", { error: streamErrorMessage(error) });
+      sse.send("error", { error: streamErrorMessage(error) });
     }
   } finally {
-    clearInterval(keepAlive);
-    res.end();
+    sse.close();
   }
 });
-
-function sendEvent(res: Response, event: string, data: unknown): void {
-  // JSON keeps newlines in the answer from breaking the SSE format.
-  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-}
 
 function streamErrorMessage(error: unknown): string {
   if (error instanceof HttpError) return error.message;

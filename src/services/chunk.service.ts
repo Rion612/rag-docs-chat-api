@@ -144,16 +144,27 @@ export async function insertChunks(
   );
 }
 
+export async function countFileChunks(fileId: ObjectId): Promise<number> {
+  return chunksCollection().countDocuments({ fileId });
+}
+
+export async function deleteFileChunks(fileId: ObjectId): Promise<void> {
+  await chunksCollection().deleteMany({ fileId });
+}
+
 /**
  * Embeds every chunk of a file that has no embedding yet, saving each batch
  * as it completes. Safe to run again after a failure: it resumes where it
- * stopped. Returns the number of chunks embedded.
+ * stopped. Reports progress before the first batch and after each one.
+ * Returns the number of chunks embedded.
  */
 export async function embedFileChunks(
   fileId: ObjectId,
   title: string,
+  onProgress?: (embedded: number, total: number) => Promise<void>,
 ): Promise<number> {
   const collection = chunksCollection();
+  const total = await countFileChunks(fileId);
   const pending = await collection
     .find(
       { fileId, embedding: { $exists: false } },
@@ -161,6 +172,9 @@ export async function embedFileChunks(
     )
     .sort({ index: 1 })
     .toArray();
+
+  let embedded = total - pending.length;
+  await onProgress?.(embedded, total);
 
   const batchSize = 100;
   for (let start = 0; start < pending.length; start += batchSize) {
@@ -176,6 +190,8 @@ export async function embedFileChunks(
         },
       })),
     );
+    embedded += batch.length;
+    await onProgress?.(embedded, total);
   }
   return pending.length;
 }

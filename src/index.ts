@@ -11,6 +11,7 @@ import { chatRouter } from "./routes/chat.routes.js";
 import { fileRouter } from "./routes/file.routes.js";
 import { sessionRouter } from "./routes/session.routes.js";
 import { getStorage } from "./storage/index.js";
+import { startFileWorker } from "./workers/file-worker.js";
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -59,12 +60,18 @@ async function start(): Promise<void> {
   // Indexes are created by `npm run db:setup`, not on startup.
   await connectToDatabase();
 
+  // Processes uploaded files in this process. Set FILE_WORKER_CONCURRENCY=0
+  // to leave that to a separate `npm run worker` process instead.
+  const concurrency = Number(process.env.FILE_WORKER_CONCURRENCY ?? 2);
+  const worker = concurrency > 0 ? startFileWorker(concurrency) : undefined;
+
   const server = app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });
 
   const shutdown = (signal: string) => {
     console.log(`${signal} received, shutting down`);
+    worker?.stop();
     server.close(() => {
       void closeDatabase().finally(() => process.exit(0));
     });

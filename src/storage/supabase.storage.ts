@@ -1,5 +1,6 @@
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   PutObjectCommand,
   type S3Client,
 } from "@aws-sdk/client-s3";
@@ -32,6 +33,14 @@ export class SupabaseStorageProvider implements StorageProvider {
       }),
     );
     return { provider: this.name, key, bucket: this.bucket };
+  }
+
+  async download(key: string): Promise<Buffer> {
+    const response = await this.s3.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    if (!response.Body) throw new Error(`Stored file is empty: ${key}`);
+    return Buffer.from(await response.Body.transformToByteArray());
   }
 
   async delete(key: string): Promise<void> {

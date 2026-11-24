@@ -10,8 +10,12 @@ import {
   type FileDocument,
 } from "../services/file.service.js";
 import { HttpError } from "../utils/http-error.js";
+import { openSse } from "../utils/sse.js";
 
 const PDF_MAGIC_BYTES = Buffer.from("%PDF-");
+
+/** How often the events stream checks the file for changes. */
+const STATUS_POLL_MS = 1_000;
 
 // All routes here run behind requireSession (see index.ts).
 export const fileRouter = Router();
@@ -25,6 +29,7 @@ function toFileResponse(file: FileDocument) {
     storageProvider: file.storage.provider,
     storagePath: file.storage.key,
     status: file.status,
+    progress: file.progress,
     pageCount: file.pageCount,
     chunkCount: file.chunkCount,
     error: file.error,
@@ -73,18 +78,57 @@ fileRouter.post(
   },
 );
 
-fileRouter.get("/:id", async (req, res) => {
-  const { id } = req.params;
+/**
+ * Finds a file of the caller's session. Files of other sessions are
+ * reported as not found, not as forbidden, so their IDs can't be probed.
+ */
+async function findOwnFile(id: string, ownerId: string) {
   if (!ObjectId.isValid(id)) {
     throw new HttpError(400, "Invalid file id.");
   }
-
-  // Files of other sessions are reported as not found, not as forbidden,
-  // so their IDs can't be probed.
-  const file = await findFileById(new ObjectId(id), sessionIdOf(req));
+  const file = await findFileById(new ObjectId(id), ownerId);
   if (!file) {
     throw new HttpError(404, "File not found.");
   }
+  return file;
+}
 
-  res.json(toFileResponse(file));
+fileRouter.get("/:id", async (req, res) => {
+  res.json(toFileResponse(await findOwnFile(req.params.id, sessionIdOf(req))));
+});
+
+/**
+ * Streams the file's processing steps as Server-Sent Events:
+ *   event: status  data: <same shape as GET /:id>   (on every change)
+ *   event: error   data: {"error": "..."}
+ * The first event is the current status. The stream ends after "ready" or
+ * "failed"; clients should then stop listening instead of reconnecting.
+ */
+fileRouter.get("/:id/events", async (req, res) => {
+  const ownerId = sessionIdOf(req);
+  let file: FileDocument | null = await findOwnFile(req.params.id, ownerId);
+
+  const sse = openSse(res);
+  let lastSent = "";
+  try {
+    while (file && !sse.closed) {
+      // Only status, progress and error changes are worth an event.
+      const snapshot = JSON.stringify([file.status, file.progress, file.error]);
+      if (snapshot !== lastSent) {
+        sse.send("status", toFileResponse(file));
+        lastSent = snapshot;
+      }
+      if (file.status === "ready" || file.status === "failed") break;
+
+      await new Promise((resolve) => setTimeout(resolve, STATUS_POLL_MS));
+      if (sse.closed) break;
+      file = await findFileById(file._id, ownerId);
+    }
+    if (!file) sse.send("error", { error: "File not found." });
+  } catch (error) {
+    console.error(error);
+    sse.send("error", { error: "Could not read the file status. Try again." });
+  } finally {
+    sse.close();
+  }
 });

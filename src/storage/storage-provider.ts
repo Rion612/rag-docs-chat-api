@@ -13,5 +13,6 @@ export interface StoredObject {
 export interface StorageProvider {
   readonly name: StorageProviderName;
   upload(key: string, body: Buffer, contentType: string): Promise<StoredObject>;
+  download(key: string): Promise<Buffer>;
   delete(key: string): Promise<void>;
 }

@@ -4,7 +4,11 @@ import type {
 } from "@google/genai";
 import { ObjectId } from "mongodb";
 import { geminiConfig, getGemini } from "../config/gemini.js";
-import { filesCollection, type FileDocument } from "../models/file.model.js";
+import {
+  filesCollection,
+  PROCESSING_STATUSES,
+  type FileDocument,
+} from "../models/file.model.js";
 import {
   isRetryableGeminiError,
   withGeminiRetry,
@@ -215,7 +219,7 @@ function ready(question: string, answer: string): PreparedAnswer {
 /** Why there is nothing to search yet. */
 async function noFilesAnswer(ownerId: string): Promise<string> {
   const processing = await filesCollection().countDocuments(
-    { ownerId, status: "processing" },
+    { ownerId, status: { $in: [...PROCESSING_STATUSES] } },
     { limit: 1 },
   );
   return processing > 0 ? PROCESSING_ANSWER : NO_FILES_ANSWER;

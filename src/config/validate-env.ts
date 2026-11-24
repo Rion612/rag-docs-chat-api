@@ -66,6 +66,9 @@ const envSchema = z.object({
   GEMINI_EMBEDDING_MODEL: optionalString,
   GEMINI_EMBEDDING_DIMENSIONS: optionalInt(128, 3072),
 
+  // File processing
+  FILE_WORKER_CONCURRENCY: optionalInt(0, 10),
+
   // Chunking
   CHUNK_SIZE: optionalInt(100, 100_000),
   CHUNK_OVERLAP: optionalInt(0, 100_000),

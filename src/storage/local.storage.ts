@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { StorageProvider, StoredObject } from "./storage-provider.js";
 
@@ -25,6 +25,10 @@ export class LocalStorageProvider implements StorageProvider {
     // "wx" fails instead of overwriting if the file already exists.
     await writeFile(filePath, body, { flag: "wx" });
     return { provider: this.name, key };
+  }
+
+  async download(key: string): Promise<Buffer> {
+    return readFile(this.resolve(key));
   }
 
   async delete(key: string): Promise<void> {
